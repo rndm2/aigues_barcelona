@@ -529,23 +529,19 @@ class ContadorAgua(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
+        # Keep this compatible with the pre-0.6.0 entity registry identity.
+        # The unique_id MUST stay as the contract id. Changing it creates a new
+        # registry entry and may make the existing entity disappear/duplicate.
+        # Do not attach a device name here: with has_entity_name=True Home Assistant
+        # prefixes the device name and turns sensor.contador_<id> into a long id.
         self._attr_name = f"Contador {coordinator.id}"
-        self._attr_unique_id = f"{DOMAIN}_{coordinator.id}"
-        self._attr_suggested_object_id = f"contador_{coordinator.id}"
+        self._attr_unique_id = coordinator.id
         self._attr_icon = "mdi:water-pump"
-        # Keep the entity id short: sensor.contador_<contract>.
-        # With has_entity_name=True, Home Assistant prefixes the device name and
-        # produces names like sensor.aigues_de_barcelona_<id>_contador_<id>.
-        self._attr_has_entity_name = False
+        self._attr_has_entity_name = True
         self._attr_should_poll = False
         self._attr_device_class = SensorDeviceClass.WATER
         self._attr_state_class = SensorStateClass.TOTAL
         self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.contract)},
-            "name": f"Aigües de Barcelona {coordinator.contract}",
-            "manufacturer": "Aigües de Barcelona",
-        }
 
     @property
     def native_value(self):
