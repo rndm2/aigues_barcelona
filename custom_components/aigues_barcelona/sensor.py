@@ -96,28 +96,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
     contadores = []
 
     for contract in contracts:
-        contract_key = contract.upper()
-        existing = hass.data[DOMAIN].get(contract_key)
-        existing_coordinator = (
-            existing.get("coordinator") if isinstance(existing, dict) else None
-        )
-
-        if existing_coordinator is not None:
-            if getattr(existing_coordinator, "entry_id", None) == config_entry.entry_id:
-                _LOGGER.debug(
-                    "Coordinator for contract %s already exists for this entry; "
-                    "skipping duplicate sensor setup",
-                    contract_key,
-                )
-                continue
-
-            _LOGGER.warning(
-                "Coordinator for contract %s already exists for another entry; "
-                "skipping duplicate sensor setup",
-                contract_key,
-            )
-            continue
-
         coordinator = ContratoAgua(
             hass,
             username,
