@@ -72,7 +72,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
     username = config_entry.data[CONF_USERNAME]
     password = config_entry.data[CONF_PASSWORD]
     twocaptcha_api_key = config_entry.data.get(CONF_2CAPTCHA_APIKEY, "")
-    contracts = config_entry.data[CONF_CONTRACT]
+    raw_contracts = config_entry.data[CONF_CONTRACT]
+    contracts = list(dict.fromkeys(raw_contracts))
+    if len(contracts) != len(raw_contracts):
+        _LOGGER.warning("Duplicate contracts found in config entry; deduplicating")
+
     token = config_entry.data.get(CONF_TOKEN)
 
     history_days = config_entry.options.get(CONF_HISTORY_DAYS, HISTORY_DAYS_DEFAULT)
@@ -89,9 +93,31 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
         scan_period,
     )
 
-    contadores = list()
+    contadores = []
 
     for contract in contracts:
+        contract_key = contract.upper()
+        existing = hass.data[DOMAIN].get(contract_key)
+        existing_coordinator = (
+            existing.get("coordinator") if isinstance(existing, dict) else None
+        )
+
+        if existing_coordinator is not None:
+            if getattr(existing_coordinator, "entry_id", None) == config_entry.entry_id:
+                _LOGGER.debug(
+                    "Coordinator for contract %s already exists for this entry; "
+                    "skipping duplicate sensor setup",
+                    contract_key,
+                )
+                continue
+
+            _LOGGER.warning(
+                "Coordinator for contract %s already exists for another entry; "
+                "skipping duplicate sensor setup",
+                contract_key,
+            )
+            continue
+
         coordinator = ContratoAgua(
             hass,
             username,
@@ -112,13 +138,16 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
         for sensor in contadores:
             await sensor.coordinator.async_refresh()
 
-    if hass.state == CoreState.running:
-        await async_first_refresh()
-    else:
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, async_first_refresh)
+    if contadores:
+        if hass.state == CoreState.running:
+            await async_first_refresh()
+        else:
+            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, async_first_refresh)
 
-    _LOGGER.info("about to add entities")
-    async_add_entities(contadores)
+        _LOGGER.info("about to add entities")
+        async_add_entities(contadores)
+    else:
+        _LOGGER.debug("No new Aigues Barcelona sensor entities to add")
 
     return True
 

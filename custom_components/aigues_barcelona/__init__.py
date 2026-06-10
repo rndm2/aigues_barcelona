@@ -14,11 +14,6 @@ from .service import async_setup as setup_service
 PLATFORMS = [Platform.SENSOR]
 
 
-async def async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry when options change."""
-    await hass.config_entries.async_reload(entry.entry_id)
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Aigues de Barcelona from a config entry."""
     api = AiguesApiClient(
@@ -50,8 +45,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await setup_service(hass, entry)
-    entry.async_on_unload(entry.add_update_listener(async_options_updated))
-
     return True
 
 
