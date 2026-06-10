@@ -1,50 +1,68 @@
 # Aigües de Barcelona para Home Assistant
 
-Este `custom_component` permite importar los datos de [Aigües de Barcelona](https://www.aiguesdebarcelona.cat/) en [Home Assistant](https://www.home-assistant.io/).
+Custom integration for importing water consumption data from Aigües de Barcelona into Home Assistant.
 
-Puedes ver el 🚰 consumo de agua que has hecho directamente en Home Assistant, y con esa información también puedes crear tus propias automatizaciones y avisos :)
+## What it exposes
 
-Si te gusta el proyecto, dale a ⭐ **Star** ! 😊
+- A water sensor per configured contract.
+- Long-term statistics suitable for the Home Assistant Energy dashboard.
+- Optional historical import.
+- Manual service for importing historical data again if needed.
 
-## :warning: NOTA: Login con usuario desactivado (CAPTCHA)
+## Login and CAPTCHA
 
-Inicio del problema: Anterior a `2023-01-23`
-Última actualización: `2024-03-10`
+Aigües de Barcelona protects login with reCAPTCHA. This integration uses a 2Captcha API key to solve the challenge during login. The integration stores the returned `ofexTokenJwt` token in the Home Assistant config entry and refreshes it when needed.
 
-La API requiere comprobar la petición de login via CAPTCHA.
-Se puede iniciar sesión pasando un Token OAuth manualmente.
-Busca la 🍪 cookie `ofexTokenJwt` y copia el valor.
-El token dura 1h.
+## Configuration
 
-Seguimiento del problema en https://github.com/duhow/hass-aigues-barcelona/issues/5 .
-
-## Uso
-
-Esta integración expone un `sensor` con el último valor disponible de la lectura de agua del día de hoy.
-La lectura que se muestra, puede estar demorada **hasta 4 días o más** (normalmente es 1-2 días).
-
-La información se consulta **cada 4 horas** para no sobresaturar el servicio.
-
-## Instalación
-
-1. Via [HACS](https://hacs.xyz/), busca e instala este componente personalizado.
-
-[![Install repository](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=duhow&repository=hass-aigues-barcelona&category=integration)
-
-2. Cuando lo tengas descargado, agrega la integración en Home Assistant.
+Install the integration, then add it from Home Assistant:
 
 [![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start?domain=aigues_barcelona)
 
-## Ayuda
+You need:
 
-No soy un experto en Home Assistant, hay conceptos que son nuevos para mí en cuanto a la parte Developer. Así que puede que tarde en implementar las nuevas requests.
+- DNI/NIE username.
+- Aigües de Barcelona password.
+- 2Captcha API key.
 
-Se agradece cualquier Pull Request si tienes conocimiento en la materia :)
+## Options
 
-Si encuentras algún error, puedes abrir un Issue.
+After setup, open the integration options to configure:
 
-## To-Do
+- `should_import_history`: import historical data on next update.
+- `history_days`: how many historical days to import.
+- `scan_period`: polling interval in seconds. Default: `3900` seconds.
 
-- [x] Sensor de último consumo disponible
-- [x] Soportar múltiples contratos
-- [x] **BETA** Publicar el consumo en [Energía](https://www.home-assistant.io/docs/energy/)
+The default scan period is intentionally conservative to avoid hammering the external service.
+
+## Services
+
+### `aigues_barcelona.import_historical_data`
+
+Imports historical data without clearing existing statistics.
+
+Fields:
+
+- `contract`: optional if only one contract is configured; required if multiple contracts exist.
+- `history_days`: number of days to import. Default: `365`.
+
+### `aigues_barcelona.reset_and_refresh_data`
+
+Legacy alias kept for backward compatibility. It does **not** clear statistics; it imports historical data only.
+
+## Notes about historical import
+
+Historical import is deliberately conservative:
+
+- It imports week by week.
+- It retries failed weekly fetches up to five times.
+- It skips already existing daily statistics to avoid duplicate data.
+- After automatic startup import, the option is switched back to `false`.
+
+## HACS
+
+This repository is structured for HACS as a custom integration under `custom_components/aigues_barcelona`.
+
+## License
+
+GPL-3.0.

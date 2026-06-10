@@ -12,7 +12,7 @@ from .const import RECAPTCHA_V2_SITEKEY
 from .version import VERSION
 
 from typing import TypedDict
-from urllib.parse import urlencode
+
 from twocaptcha import TwoCaptcha, api
 
 TIMEOUT = 60
@@ -40,12 +40,18 @@ class ChallengeResponse(TypedDict):
     captchaId: str
     code: str
 
+
 class AiguesApiClient:
     _global_captcha_cooldown_until = None
     _global_login_in_progress = False
 
     def __init__(
-        self, username, password, twocaptcha_api_key, contract=None, session: requests.Session = None
+        self,
+        username,
+        password,
+        twocaptcha_api_key,
+        contract=None,
+        session: requests.Session | None = None,
     ):
         if session is None:
             session = requests.Session()
@@ -65,14 +71,6 @@ class AiguesApiClient:
         self._contract = contract
 
         self.last_response = None
-
-    def _generate_url(self, path, query) -> str:
-        query_proc = ""
-
-        if query:
-            query_proc = "?" + urlencode(query)
-
-        return f"{self.api_host}/{path.lstrip('/')}{query_proc}"
 
     def get_token(self):
         return self.cli.cookies.get_dict().get(API_COOKIE_TOKEN)
@@ -109,10 +107,17 @@ class AiguesApiClient:
 
         try:
             parsed = resp.json()
-            _LOGGER.debug("Query done with code %s %s", resp.status_code, parsed)
+            _LOGGER.debug(
+                "Query %s %s done with code %s", method, path, resp.status_code
+            )
             self.last_response = parsed
         except ValueError:
-            _LOGGER.debug("Query done with code %s (non-JSON body)", resp.status_code)
+            _LOGGER.debug(
+                "Query %s %s done with code %s (non-JSON body)",
+                method,
+                path,
+                resp.status_code,
+            )
             self.last_response = resp.text
 
         if isinstance(parsed, dict):
@@ -136,12 +141,17 @@ class AiguesApiClient:
     def login(self, user=None, password=None):
         now = datetime.datetime.utcnow()
 
-        if AiguesApiClient._global_captcha_cooldown_until and now < AiguesApiClient._global_captcha_cooldown_until:
-            raise Exception(
-                f"2Captcha cooldown active until {AiguesApiClient._global_captcha_cooldown_until.isoformat()}")
+        if (
+            AiguesApiClient._global_captcha_cooldown_until
+            and now < AiguesApiClient._global_captcha_cooldown_until
+        ):
+            raise AiguesApiRateLimitError(
+                "2Captcha cooldown active until "
+                f"{AiguesApiClient._global_captcha_cooldown_until.isoformat()}"
+            )
 
         if AiguesApiClient._global_login_in_progress:
-            raise Exception("Login already in progress")
+            raise AiguesApiRateLimitError("Login already in progress")
 
         AiguesApiClient._global_login_in_progress = True
 
@@ -149,23 +159,33 @@ class AiguesApiClient:
             client = TwoCaptcha(self._twocaptcha_api_key)
 
             try:
-                response: ChallengeResponse = client.recaptcha(sitekey=RECAPTCHA_V2_SITEKEY, url=RECAPTCHA_V2_PAGEURL)
+                response: ChallengeResponse = client.recaptcha(
+                    sitekey=RECAPTCHA_V2_SITEKEY, url=RECAPTCHA_V2_PAGEURL
+                )
 
                 if not response or "code" not in response:
-                    AiguesApiClient._global_captcha_cooldown_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                    AiguesApiClient._global_captcha_cooldown_until = (
+                        datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                    )
                     raise RuntimeError(f"2Captcha no code in response: {response}")
 
                 recaptcha = response["code"]
             except api.NetworkException as e:
-                AiguesApiClient._global_captcha_cooldown_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
+                AiguesApiClient._global_captcha_cooldown_until = (
+                    datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
+                )
                 _LOGGER.error("2Captcha network error: %s", e)
                 raise
             except api.ApiException as e:
-                AiguesApiClient._global_captcha_cooldown_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
+                AiguesApiClient._global_captcha_cooldown_until = (
+                    datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
+                )
                 _LOGGER.error("2Captcha API error: %s", e)
                 raise
             except Exception as e:
-                AiguesApiClient._global_captcha_cooldown_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                AiguesApiClient._global_captcha_cooldown_until = (
+                    datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                )
                 _LOGGER.error("Unexpected 2Captcha error: %s", e)
                 raise
 
@@ -186,13 +206,17 @@ class AiguesApiClient:
             }
             headers = {
                 "Content-Type": "application/json",
-                "Ocp-Apim-Subscription-Key": "6a98b8b8c7b243cda682a43f09e6588b;product=portlet-login-ofex",
+                "Ocp-Apim-Subscription-Key": (
+                "6a98b8b8c7b243cda682a43f09e6588b;product=portlet-login-ofex"
+            ),
             }
 
             try:
                 r = self._query(path, query, body, headers, method="POST")
             except Exception as e:
-                AiguesApiClient._global_captcha_cooldown_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
+                AiguesApiClient._global_captcha_cooldown_until = (
+                    datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
+                )
                 _LOGGER.error("Login POST failed, setting cooldown: %s", e)
                 raise
 
@@ -202,14 +226,18 @@ class AiguesApiClient:
 
             if error:
                 _LOGGER.warning(error)
-                AiguesApiClient._global_captcha_cooldown_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                AiguesApiClient._global_captcha_cooldown_until = (
+                    datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                )
 
                 return False
 
             access_token = r.json().get("access_token", None)
             if not access_token:
                 _LOGGER.warning("Access token missing")
-                AiguesApiClient._global_captcha_cooldown_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                AiguesApiClient._global_captcha_cooldown_until = (
+                    datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+                )
 
                 return False
 
@@ -228,7 +256,9 @@ class AiguesApiClient:
         path = "/ofex-login-api/auth/logout"
         headers = {
             "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": "6a98b8b8c7b243cda682a43f09e6588b;product=portlet-login-ofex",
+            "Ocp-Apim-Subscription-Key": (
+                "6a98b8b8c7b243cda682a43f09e6588b;product=portlet-login-ofex"
+            ),
         }
 
         try:
@@ -236,7 +266,11 @@ class AiguesApiClient:
         except Exception as e:
             _LOGGER.debug("Logout failed (probably no active session): %s", e)
         finally:
-            self.cli.cookies.clear(domain="." + API_HOST.split(".", 1)[1], path="/", name=API_COOKIE_TOKEN)
+            self.cli.cookies.clear(
+                domain="." + API_HOST.split(".", 1)[1],
+                path="/",
+                name=API_COOKIE_TOKEN,
+            )
 
     def set_token(self, token: str):
         host = ".".join(self.api_host.split(".")[1:])
@@ -262,7 +296,7 @@ class AiguesApiClient:
         expires = datetime.datetime.fromtimestamp(expires)
         NOW = datetime.datetime.now()
 
-        _LOGGER.debug(f"is_token_expired call with result {NOW >= expires}")
+        _LOGGER.debug("is_token_expired call with result %s", NOW >= expires)
 
         return NOW >= expires
 
@@ -273,7 +307,9 @@ class AiguesApiClient:
         path = "/ofex-login-api/auth/getProfile"
         query = {"lang": "ca", "userId": user, "clientId": user}
         headers = {
-            "Ocp-Apim-Subscription-Key": "6a98b8b8c7b243cda682a43f09e6588b;product=portlet-login-ofex"
+            "Ocp-Apim-Subscription-Key": (
+                "6a98b8b8c7b243cda682a43f09e6588b;product=portlet-login-ofex"
+            )
         }
 
         r = self._query(path, query, json=None, headers=headers, method="POST")

@@ -22,6 +22,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import CONF_PASSWORD
 from homeassistant.const import CONF_STATE
+from homeassistant.const import CONF_TOKEN
 from homeassistant.const import CONF_USERNAME
 from homeassistant.const import EVENT_HOMEASSISTANT_START
 from homeassistant.const import UnitOfVolume
@@ -35,6 +36,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.components.recorder.db_schema import Statistics, StatisticsMeta
 from homeassistant.components.recorder.util import session_scope
 
+from .api import AiguesApiAuthError
 from .api import AiguesApiClient
 from .const import API_ERROR_TOKEN_REVOKED
 from .const import ATTR_LAST_MEASURE
@@ -69,9 +71,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
 
     username = config_entry.data[CONF_USERNAME]
     password = config_entry.data[CONF_PASSWORD]
-    twocaptcha_api_key = config_entry.data[CONF_2CAPTCHA_APIKEY]
+    twocaptcha_api_key = config_entry.data.get(CONF_2CAPTCHA_APIKEY, "")
     contracts = config_entry.data[CONF_CONTRACT]
-    token = config_entry.data.get("token")
+    token = config_entry.data.get(CONF_TOKEN)
 
     history_days = config_entry.options.get(CONF_HISTORY_DAYS, HISTORY_DAYS_DEFAULT)
     history_should_import = config_entry.options.get(CONF_SHOULD_IMPORT_HISTORY, True)
@@ -183,9 +185,12 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
 
         entry = self.hass.config_entries.async_get_entry(self.entry_id)
 
-        # drop old token to force login
+        if entry is None:
+            raise ConfigEntryAuthFailed("Config entry not found for token refresh")
+
+        # Drop old token to force login.
         self.hass.config_entries.async_update_entry(
-            entry, data={k: v for k, v in entry.data.items() if k != "token"}
+            entry, data={k: v for k, v in entry.data.items() if k != CONF_TOKEN}
         )
 
         await self.hass.async_add_executor_job(self._api.login)
@@ -193,7 +198,7 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
 
         if new_token:
             self.hass.config_entries.async_update_entry(
-                entry, data={**entry.data, "token": new_token}
+                entry, data={**entry.data, CONF_TOKEN: new_token}
             )
 
     async def _async_update_data(self):
@@ -221,8 +226,10 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
             consumptions = await self.hass.async_add_executor_job(
                 self._api.consumptions, LAST_WEEK, TODAY + timedelta(days=1), self.contract
             )
-        except ConfigEntryAuthFailed as exp:
+        except ConfigEntryAuthFailed:
             _LOGGER.error("Token has expired, cannot check consumptions.")
+            raise
+        except AiguesApiAuthError as exp:
             raise ConfigEntryAuthFailed from exp
         except Exception as exp:
             self.async_set_update_error(exp)
@@ -348,7 +355,10 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
                     if dt is None:
                         return datetime.min.replace(tzinfo=dt_util.UTC)
 
-                    return dt_util.as_utc(dt.replace(tzinfo=None).replace(tzinfo=dt_util.DEFAULT_TIME_ZONE))
+                    local_dt = dt.replace(tzinfo=None).replace(
+                        tzinfo=dt_util.DEFAULT_TIME_ZONE
+                    )
+                    return dt_util.as_utc(local_dt)
 
                 consumptions = sorted(consumptions, key=_key)
 
@@ -358,7 +368,10 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
                     if dt is None:
                         continue
 
-                    label_local = dt.replace(tzinfo=None).replace(tzinfo=dt_util.DEFAULT_TIME_ZONE) - timedelta(seconds=1)
+                    label_local = (
+                        dt.replace(tzinfo=None).replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+                        - timedelta(seconds=1)
+                    )
                     start_local = dt_util.start_of_local_day(label_local)
                     start_ts = dt_util.as_utc(start_local)
 
@@ -419,7 +432,9 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
         finally:
             self._import_in_progress = False
 
-    async def _async_db_get_start_ts_in_range(self, start: datetime, end: datetime) -> list[float]:
+    async def _async_db_get_start_ts_in_range(
+        self, start: datetime, end: datetime
+    ) -> list[float]:
         def _query():
             with session_scope(hass=self.hass) as session:
                 meta_id = (

@@ -13,7 +13,8 @@
       "user": {
         "data": {
           "username": "Usuari (DNI/NIE)",
-          "password": "Contrasenya"
+          "password": "Contrasenya",
+          "twocaptcha_api_key": "Clau API de 2Captcha"
         },
         "title": "Configurar integració"
       },

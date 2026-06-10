@@ -44,7 +44,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ConfigEntryNotReady from err
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     await setup_service(hass, entry)
 
     return True
@@ -53,9 +52,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    if not hass.data.get(DOMAIN):
+    if not unload_ok:
+        return False
+
+    domain_data = hass.data.get(DOMAIN)
+    if not domain_data:
+        return True
+
+    contracts_to_remove = [
+        key
+        for key, value in domain_data.items()
+        if isinstance(value, dict)
+        and getattr(value.get("coordinator"), "entry_id", None) == entry.entry_id
+    ]
+
+    for key in contracts_to_remove:
+        domain_data.pop(key, None)
+
+    if not domain_data:
         hass.data.pop(DOMAIN, None)
 
-    return unload_ok
+    return True

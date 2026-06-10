@@ -88,7 +88,18 @@ async def validate_credentials(
         raise
     except Exception:
         last_response = api.last_response if api is not None else None
-        _LOGGER.debug("Last API response during credential validation: %s", last_response)
+        if last_response:
+            if isinstance(last_response, dict):
+                _LOGGER.debug(
+                    "Credential validation failed; last response keys: %s",
+                    sorted(last_response.keys()),
+                )
+            else:
+                _LOGGER.debug(
+                    "Credential validation failed; last response type: %s",
+                    type(last_response).__name__,
+                )
+
         if not last_response:
             return False
 
@@ -187,11 +198,14 @@ class AiguesBarcelonaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         errors = {}
-        _LOGGER.debug("Current values on reauth_confirm: %s --> %s", self.entry, user_input)
+        _LOGGER.debug(
+            "Reauth confirmation submitted for entry %s",
+            self.entry.entry_id if self.entry else None,
+        )
         user_input = {**self.stored_input, **(user_input or {})}
         try:
             info = await validate_credentials(self.hass, user_input)
-            _LOGGER.debug("Credential validation result: %s", info)
+            _LOGGER.debug("Credential validation succeeded during reauth")
             if not info:
                 raise InvalidAuth
 
@@ -234,7 +248,7 @@ class AiguesBarcelonaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             self.stored_input = dict(user_input)
             info = await validate_credentials(self.hass, user_input)
-            _LOGGER.debug("Credential validation result: %s", info)
+            _LOGGER.debug("Credential validation succeeded during reauth")
             if not info:
                 raise InvalidAuth
             contracts = info[CONF_CONTRACT]

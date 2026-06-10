@@ -28,18 +28,32 @@ SERVICE_SCHEMA = vol.Schema(
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up integration services."""
 
-    async def handle_import_historical_data(call: ServiceCall) -> None:
+    async def _handle_history_import(
+        call: ServiceCall, *, legacy_reset_alias: bool = False
+    ) -> None:
         coordinator = _get_coordinator(hass, call.data.get(CONF_CONTRACT))
         if coordinator is None:
             return
 
         days = call.data.get(CONF_HISTORY_DAYS, 365)
-        _LOGGER.warning(
-            "Importing %s days of historical data for %s by service call",
-            days,
-            coordinator.contract,
-        )
-        await fetch_historic_data(hass, coordinator, days=days)
+        if legacy_reset_alias:
+            _LOGGER.warning(
+                "Legacy reset_and_refresh_data service called for %s. "
+                "Statistics reset is not performed; importing %s historical days only.",
+                coordinator.contract,
+                days,
+            )
+        else:
+            _LOGGER.warning(
+                "Importing %s days of historical data for %s by service call",
+                days,
+                coordinator.contract,
+            )
+
+        await fetch_historic_data(coordinator, days=days)
+
+    async def handle_import_historical_data(call: ServiceCall) -> None:
+        await _handle_history_import(call)
 
     async def handle_reset_and_refresh_data(call: ServiceCall) -> None:
         """Backward-compatible service name.
@@ -47,18 +61,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         This service does not clear statistics because clear_statistics is unsafe from
         this context in current Home Assistant versions. It only imports history.
         """
-        coordinator = _get_coordinator(hass, call.data.get(CONF_CONTRACT))
-        if coordinator is None:
-            return
-
-        days = call.data.get(CONF_HISTORY_DAYS, 365)
-        _LOGGER.warning(
-            "Legacy reset_and_refresh_data service called for %s. "
-            "Statistics reset is not performed; importing %s historical days only.",
-            coordinator.contract,
-            days,
-        )
-        await fetch_historic_data(hass, coordinator, days=days)
+        await _handle_history_import(call, legacy_reset_alias=True)
 
     if not hass.services.has_service(DOMAIN, SERVICE_IMPORT_HISTORICAL_DATA):
         hass.services.async_register(
@@ -112,13 +115,11 @@ def _get_coordinator(hass: HomeAssistant, contract: str | None):
     return coordinator
 
 
-async def clear_stored_data(hass: HomeAssistant, coordinator) -> None:
+async def clear_stored_data(coordinator) -> None:
     """Clear stored statistics."""
     await coordinator._clear_statistics()
 
 
-async def fetch_historic_data(
-    hass: HomeAssistant, coordinator, days: int = 365
-) -> None:
+async def fetch_historic_data(coordinator, days: int = 365) -> None:
     """Fetch historical consumption data."""
     await coordinator.import_old_consumptions(days=days)
