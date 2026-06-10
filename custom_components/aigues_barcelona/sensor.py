@@ -503,10 +503,11 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
                     await asyncio.sleep(2 ** (attempt - 1))
 
             if last_exc is not None and consumptions is None:
-                _LOGGER.exception(
-                    "Failed to fetch historical weekly consumptions for %s at %s after 5 attempts",
+                _LOGGER.warning(
+                    "Failed to fetch historical weekly consumptions for %s at %s after 5 attempts: %s",
                     self.contract,
                     current_date,
+                    last_exc,
                 )
                 current_date += timedelta(weeks=1)
                 continue

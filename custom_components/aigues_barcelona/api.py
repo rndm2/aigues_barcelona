@@ -220,7 +220,7 @@ class AiguesApiClient:
                 _LOGGER.error("Login POST failed, setting cooldown: %s", e)
                 raise
 
-            _LOGGER.debug(r)
+            _LOGGER.debug("Login POST completed with status %s", r.status_code)
 
             error = r.json().get("errorMessage", None)
 
