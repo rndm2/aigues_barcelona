@@ -15,21 +15,32 @@
           "username": "Usuari (DNI/NIE)",
           "password": "Contrasenya"
         },
-        "title": "Configurar integraci\u00f3"
+        "title": "Configurar integració"
       },
       "token": {
         "data": {
           "token": "OAuth Token"
         },
         "title": "Introdueix el Token OAuth",
-        "description": "Com que Aig\u00fces de Barcelona utilitza Recaptcha per a iniciar sessi\u00f3, no es pot iniciar sessi\u00f3 autom\u00e0ticament des de Home Assistant, aix\u00ed que has d'iniciar sessi\u00f3 des de la web, i proporcionar el token.\nCopia i enganxa el token aqu\u00ed (comen\u00e7a per ey....)"
+        "description": "Com que Aigües de Barcelona utilitza Recaptcha per a iniciar sessió, no es pot iniciar sessió automàticament des de Home Assistant, així que has d'iniciar sessió des de la web, i proporcionar el token.\nCopia i enganxa el token aquí (comença per ey....)"
       },
       "reauth_confirm": {
         "data": {
           "token": "OAuth Token"
         },
         "title": "Relogin - Introdueix el Token OAuth",
-        "description": "Com que Aig\u00fces de Barcelona utilitza Recaptcha per a iniciar sessi\u00f3, no es pot iniciar sessi\u00f3 autom\u00e0ticament des de Home Assistant, aix\u00ed que has d'iniciar sessi\u00f3 des de la web, i proporcionar el token.\nCopia i enganxa el token aqu\u00ed (comen\u00e7a per ey....)"
+        "description": "Com que Aigües de Barcelona utilitza Recaptcha per a iniciar sessió, no es pot iniciar sessió automàticament des de Home Assistant, així que has d'iniciar sessió des de la web, i proporcionar el token.\nCopia i enganxa el token aquí (comença per ey....)"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "should_import_history": "Importar l'històric en iniciar",
+          "history_days": "Nombre de dies històrics a importar",
+          "scan_period": "Interval d'actualització, segons"
+        }
       }
     }
   }

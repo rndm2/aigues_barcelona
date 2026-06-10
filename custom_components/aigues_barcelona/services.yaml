@@ -1,6 +1,44 @@
 ---
 # Service call documentation for Aigues de Barcelona integration
 
+import_historical_data:
+  name: Import historical data
+  description: Import historical water consumption data without clearing existing statistics.
+  fields:
+    contract:
+      name: Contract
+      description: Contract number. Required when multiple contracts are configured.
+      required: false
+      selector:
+        text:
+    history_days:
+      name: Historical days
+      description: Number of historical days to import.
+      required: false
+      default: 365
+      selector:
+        number:
+          min: 1
+          max: 1825
+          mode: box
+
 reset_and_refresh_data:
-  name: Reset and Refresh Data
-  description: WARNING! Reset all stored historic/metrics data and start getting metrics from 1 year ago, querying data weekly.
+  name: Import historical data (legacy)
+  description: Legacy alias. Does not reset stored statistics; imports historical data only.
+  fields:
+    contract:
+      name: Contract
+      description: Contract number. Required when multiple contracts are configured.
+      required: false
+      selector:
+        text:
+    history_days:
+      name: Historical days
+      description: Number of historical days to import.
+      required: false
+      default: 365
+      selector:
+        number:
+          min: 1
+          max: 1825
+          mode: box

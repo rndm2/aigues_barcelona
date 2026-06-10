@@ -8,17 +8,25 @@ from typing import Any
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_PASSWORD
-from homeassistant.const import CONF_USERNAME
-from homeassistant.const import CONF_TOKEN
+from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .api import AiguesApiClient
-from .const import API_ERROR_TOKEN_REVOKED
-from .const import CONF_CONTRACT
-from .const import DOMAIN
-from .const import CONF_2CAPTCHA_APIKEY
+from .const import (
+    API_ERROR_TOKEN_REVOKED,
+    CONF_2CAPTCHA_APIKEY,
+    CONF_CONTRACT,
+    CONF_HISTORY_DAYS,
+    CONF_SCAN_PERIOD,
+    CONF_SHOULD_IMPORT_HISTORY,
+    DEFAULT_SCAN_PERIOD,
+    DOMAIN,
+    HISTORY_DAYS_DEFAULT,
+    MAX_SCAN_PERIOD,
+    MIN_SCAN_PERIOD,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +41,6 @@ ACCOUNT_CONFIG_SCHEMA = vol.Schema(
 
 def check_valid_nif(username: str) -> bool:
     """Quick check for NIF/DNI/NIE and return if valid."""
-
     if len(username) != 9:
         return False
 
@@ -54,7 +61,8 @@ def check_valid_nif(username: str) -> bool:
 
 async def validate_credentials(
     hass: HomeAssistant, data: dict[str, Any]
-) -> dict[str, Any]:
+) -> dict[str, Any] | bool:
+    """Validate credentials and return available contracts plus token."""
     username = data[CONF_USERNAME]
     password = data[CONF_PASSWORD]
     twocaptcha_api_key = data[CONF_2CAPTCHA_APIKEY]
@@ -62,62 +70,113 @@ async def validate_credentials(
     if not check_valid_nif(username):
         raise InvalidUsername
 
+    api: AiguesApiClient | None = None
     try:
         api = AiguesApiClient(username, password, twocaptcha_api_key)
         _LOGGER.info("Attempting to login")
         login = await hass.async_add_executor_job(api.login)
         if not login:
             raise InvalidAuth
-        _LOGGER.info("Login succeeded!")
+        _LOGGER.info("Login succeeded")
         contracts = await hass.async_add_executor_job(api.contracts, username)
         token = api.get_token()
 
         available_contracts = [x["contractDetail"]["contractNumber"] for x in contracts]
         return {CONF_CONTRACT: available_contracts, CONF_TOKEN: token}
 
+    except (InvalidAuth, InvalidUsername):
+        raise
     except Exception:
-        _LOGGER.debug(f"Last data: {api.last_response}")
-        if not api.last_response:
+        last_response = api.last_response if api is not None else None
+        _LOGGER.debug("Last API response during credential validation: %s", last_response)
+        if not last_response:
             return False
 
         if (
-            isinstance(api.last_response, dict)
-            and api.last_response.get("path") == "recaptchaClientResponse"
+            isinstance(last_response, dict)
+            and last_response.get("path") == "recaptchaClientResponse"
         ):
             raise RecaptchaAppeared
 
-        if (
-            isinstance(api.last_response, str)
-            and api.last_response == API_ERROR_TOKEN_REVOKED
-        ):
+        if isinstance(last_response, str) and last_response == API_ERROR_TOKEN_REVOKED:
             raise TokenExpired
 
         return False
 
 
+class AiguesBarcelonaOptionsFlow(config_entries.OptionsFlow):
+    """Handle options flow."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        current_should_import = self.config_entry.options.get(
+            CONF_SHOULD_IMPORT_HISTORY,
+            self.config_entry.data.get(CONF_SHOULD_IMPORT_HISTORY, False),
+        )
+
+        current_history_days = self.config_entry.options.get(
+            CONF_HISTORY_DAYS,
+            self.config_entry.data.get(CONF_HISTORY_DAYS, HISTORY_DAYS_DEFAULT),
+        )
+
+        current_scan_period = self.config_entry.options.get(
+            CONF_SCAN_PERIOD,
+            self.config_entry.data.get(CONF_SCAN_PERIOD, DEFAULT_SCAN_PERIOD),
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SHOULD_IMPORT_HISTORY,
+                        default=current_should_import,
+                    ): bool,
+                    vol.Required(CONF_HISTORY_DAYS, default=current_history_days): vol.All(
+                        int, vol.Range(min=1, max=365 * 5)
+                    ),
+                    vol.Required(CONF_SCAN_PERIOD, default=current_scan_period): vol.All(
+                        int, vol.Range(min=MIN_SCAN_PERIOD, max=MAX_SCAN_PERIOD)
+                    ),
+                }
+            ),
+        )
+
+
 class AiguesBarcelonaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle config flow."""
+
     VERSION = 2
-    stored_input = dict()
+
+    def __init__(self) -> None:
+        self.stored_input: dict[str, Any] = {}
+        self.entry: config_entries.ConfigEntry | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> AiguesBarcelonaOptionsFlow:
+        return AiguesBarcelonaOptionsFlow()
 
     async def async_step_token(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Return to user step with stored input (previous user creds) and the
-        current provided token."""
-        return await self.async_step_user({**self.stored_input, **user_input})
+        """Return to user step with stored input and provided token."""
+        return await self.async_step_user({**self.stored_input, **(user_input or {})})
 
     async def async_step_reauth(self, entry) -> FlowResult:
         """Request OAuth Token again when expired."""
-        # get previous entity content back to flow
         self.entry = entry
         if hasattr(entry, "data"):
-            self.stored_input = entry.data
+            self.stored_input = dict(entry.data)
         else:
-            self.stored_input = entry
+            self.stored_input = dict(entry)
 
             # WHAT: for DataUpdateCoordinator, entry is not valid,
             # as it contains only sensor data. Missing entry_id.
-            # This recovers the entry_id data.
             if entry := self.hass.config_entries.async_get_entry(
                 self.context["entry_id"]
             ):
@@ -128,14 +187,12 @@ class AiguesBarcelonaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         errors = {}
-        _LOGGER.debug(
-            f"Current values on reauth_confirm: {self.entry} --> {user_input}"
-        )
-        user_input = {**self.stored_input, **user_input}
+        _LOGGER.debug("Current values on reauth_confirm: %s --> %s", self.entry, user_input)
+        user_input = {**self.stored_input, **(user_input or {})}
         try:
             info = await validate_credentials(self.hass, user_input)
-            _LOGGER.debug(f"Result is {info}")
-            if not info:  # invalid oauth token
+            _LOGGER.debug("Credential validation result: %s", info)
+            if not info:
                 raise InvalidAuth
 
             contracts = info[CONF_CONTRACT]
@@ -175,9 +232,9 @@ class AiguesBarcelonaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         try:
-            self.stored_input = user_input
+            self.stored_input = dict(user_input)
             info = await validate_credentials(self.hass, user_input)
-            _LOGGER.debug(f"Result is {info}")
+            _LOGGER.debug("Credential validation result: %s", info)
             if not info:
                 raise InvalidAuth
             contracts = info[CONF_CONTRACT]
@@ -197,7 +254,7 @@ class AiguesBarcelonaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except AlreadyConfigured:
             errors["base"] = "already_configured"
         else:
-            _LOGGER.debug(f"Creating entity with {user_input} and {contracts=}")
+            _LOGGER.debug("Creating entity for contracts: %s", contracts)
             nif_oculto = user_input[CONF_USERNAME][-3:][0:2]
 
             return self.async_create_entry(
@@ -214,8 +271,7 @@ class AlreadyConfigured(HomeAssistantError):
 
 
 class RecaptchaAppeared(HomeAssistantError):
-    """Error to indicate a Recaptcha appeared and requires an OAuth token
-    issued."""
+    """Error to indicate a Recaptcha appeared and requires an OAuth token issued."""
 
 
 class TokenExpired(HomeAssistantError):
@@ -227,4 +283,4 @@ class InvalidAuth(HomeAssistantError):
 
 
 class InvalidUsername(HomeAssistantError):
-    """Error to indicate invalid username."""
+    """Error to indicate username is invalid."""

@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD
-from homeassistant.const import CONF_USERNAME
-from homeassistant.const import CONF_TOKEN
-from homeassistant.const import Platform
+from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .api import AiguesApiClient
-from .const import DOMAIN
-from .const import CONF_2CAPTCHA_APIKEY
+from .const import CONF_2CAPTCHA_APIKEY, DOMAIN
 from .service import async_setup as setup_service
-
-from homeassistant.exceptions import ConfigEntryNotReady
 
 PLATFORMS = [Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Aigues de Barcelona from a config entry."""
     api = AiguesApiClient(
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
@@ -32,7 +28,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if api.is_token_expired():
         try:
             hass.config_entries.async_update_entry(
-                entry, data={k: v for k, v in entry.data.items() if k != "token"}
+                entry,
+                data={k: v for k, v in entry.data.items() if k != CONF_TOKEN},
             )
 
             await hass.async_add_executor_job(api.login)
@@ -40,10 +37,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             if new_token:
                 hass.config_entries.async_update_entry(
-                    entry, data={**entry.data, "token": new_token}
+                    entry,
+                    data={**entry.data, CONF_TOKEN: new_token},
                 )
-        except:
-            raise ConfigEntryNotReady
+        except Exception as err:
+            raise ConfigEntryNotReady from err
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -53,11 +51,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        if entry.entry_id in hass.data[DOMAIN].keys():
-            hass.data[DOMAIN].pop(entry.entry_id)
-    if not hass.data[DOMAIN]:
-        del hass.data[DOMAIN]
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if not hass.data.get(DOMAIN):
+        hass.data.pop(DOMAIN, None)
 
     return unload_ok
