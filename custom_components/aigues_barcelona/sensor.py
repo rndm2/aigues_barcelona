@@ -531,8 +531,12 @@ class ContadorAgua(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._attr_name = f"Contador {coordinator.id}"
         self._attr_unique_id = f"{DOMAIN}_{coordinator.id}"
+        self._attr_suggested_object_id = f"contador_{coordinator.id}"
         self._attr_icon = "mdi:water-pump"
-        self._attr_has_entity_name = True
+        # Keep the entity id short: sensor.contador_<contract>.
+        # With has_entity_name=True, Home Assistant prefixes the device name and
+        # produces names like sensor.aigues_de_barcelona_<id>_contador_<id>.
+        self._attr_has_entity_name = False
         self._attr_should_poll = False
         self._attr_device_class = SensorDeviceClass.WATER
         self._attr_state_class = SensorStateClass.TOTAL
