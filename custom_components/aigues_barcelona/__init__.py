@@ -27,19 +27,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if api.is_token_expired():
         try:
-            hass.config_entries.async_update_entry(
-                entry,
-                data={k: v for k, v in entry.data.items() if k != CONF_TOKEN},
-            )
-
-            await hass.async_add_executor_job(api.login)
+            login_ok = await hass.async_add_executor_job(api.login)
             new_token = api.get_token()
 
-            if new_token:
-                hass.config_entries.async_update_entry(
-                    entry,
-                    data={**entry.data, CONF_TOKEN: new_token},
-                )
+            if not login_ok or not new_token:
+                raise RuntimeError("Aigues login did not return a token")
+
+            hass.config_entries.async_update_entry(
+                entry,
+                data={**entry.data, CONF_TOKEN: new_token},
+            )
         except Exception as err:
             raise ConfigEntryNotReady from err
 

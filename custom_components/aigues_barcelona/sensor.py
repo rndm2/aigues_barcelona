@@ -149,6 +149,7 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
         self.reset = prev_data is None
 
         self._import_in_progress = False
+        self._token_lock = asyncio.Lock()
 
         self.contract = contract.upper()
         self.id = contract.lower()
@@ -190,20 +191,24 @@ class ContratoAgua(TimestampDataUpdateCoordinator):
         if not self._api.is_token_expired():
             return
 
-        entry = self.hass.config_entries.async_get_entry(self.entry_id)
+        async with self._token_lock:
+            entry = self.hass.config_entries.async_get_entry(self.entry_id)
 
-        if entry is None:
-            raise ConfigEntryAuthFailed("Config entry not found for token refresh")
+            if entry is None:
+                raise ConfigEntryAuthFailed("Config entry not found for token refresh")
 
-        # Drop old token to force login.
-        self.hass.config_entries.async_update_entry(
-            entry, data={k: v for k, v in entry.data.items() if k != CONF_TOKEN}
-        )
+            stored_token = entry.data.get(CONF_TOKEN)
+            if stored_token:
+                self._api.set_token(stored_token)
+                if not self._api.is_token_expired():
+                    return
 
-        await self.hass.async_add_executor_job(self._api.login)
-        new_token = self._api.get_token()
+            login_ok = await self.hass.async_add_executor_job(self._api.login)
+            new_token = self._api.get_token()
 
-        if new_token:
+            if not login_ok or not new_token:
+                raise RuntimeError("Aigues login did not return a token")
+
             self.hass.config_entries.async_update_entry(
                 entry, data={**entry.data, CONF_TOKEN: new_token}
             )
